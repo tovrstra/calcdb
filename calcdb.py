@@ -377,6 +377,7 @@ class GaussianFCHKFields(Fields):
             GaussianFCHKFieldInfo('estruct/mol_charges', (), 'mol', int, 'Charge'),
             GaussianFCHKFieldInfo('estruct/mol_dipoles', (3,), 'mol', float, 'Dipole Moment'),
             GaussianFCHKFieldInfo('estruct/atom_charges/mulliken', (), 'atom', float, 'Mulliken Charges'),
+            GaussianFCHKFieldInfo('estruct/eff_core_charges', (), 'atom', float, 'Nuclear charges'),
         ])
 
     def read(self, path):
@@ -385,6 +386,10 @@ class GaussianFCHKFields(Fields):
         result = []
         for fchk_name in fchk_names:
             result.append(fchk[fchk_name])
+        # Filter out ghost atoms
+        mask = result[-1] > 0
+        result[2] = result[2][mask]
+        result[3] = result[3][mask]
         return result
 
 

@@ -10,7 +10,7 @@
 
    Several functions below support a ``pattern`` argument. This is either a
    string with a pattern supported by the fnmatch module, or a numpy array with
-   integer indexes refering to individual xmers.   
+   integer indexes refering to individual xmers.
 """
 
 print 'Importing stuff'
@@ -39,22 +39,26 @@ Molecule = namedtuple('Molecule', 'name nfrag begin end')
 
 
 class CalcDB(object):
-    def __init__(self, root, fnh5, frag_path=None, report_missing=True):
+    def __init__(self, fnh5, root=None, frag_path=None, report_missing=True):
         """Initialize a calculation database
-        
+
+        Only the first argument is needed to use the database. The rest is also needed
+        when storing data in the database.
+
+
         Parameters
         ----------
+        fnh5 : str
+               The name of the HDF5 file.
         root : str
                The root directory where the calculations and the database are stored.
-        fnh5 : str
-               The (base)name of the HDF5 file.
         frag_path : str
                    Relative path to the fragment calculations (contains on time '%i').
         report_missing : boolean
                          When True, every name is printed for which no data is provided.
         """
+        self.fnh5 = fnh5
         self.root = root
-        self.fnh5 = os.path.join(root, fnh5)
         self.frag_path = frag_path
         self.report_missing = report_missing
 
@@ -68,17 +72,17 @@ class CalcDB(object):
                 begin = end
         print 'Number of molecules', len(self.mols)
         print 'Number of fragments', sum(mol.nfrag for mol in self.mols)
-    
+
     @classmethod
-    def from_scratch(cls, root, fnh5, patterns, frag_path=None, report_missing=True):
+    def from_scratch(cls, fnh5, root, patterns, frag_path=None, report_missing=True):
         """Initialize a calculation database from scratch
-        
+
         Parameters
         ----------
-        root : str
-               The root directory where the calculations and the database are stored.
         fnh5 : str
                The (base)name of the HDF5 file.
+        root : str
+               The root directory where the calculations and the database are stored.
         patterns : list of str
                    List of fnmatch strings with directories containint calculations
         frag_path : str
@@ -86,9 +90,8 @@ class CalcDB(object):
         report_missing : boolean
                          When True, every name is printed for which no data is provided.
         """
-        full_fnh5 = os.path.join(root, fnh5)
-        if not os.path.isfile(full_fnh5):
-            print 'Looking up all directories (slow)'            
+        if not os.path.isfile(fnh5):
+            print 'Looking up all directories (slow)'
             mols = []
             for pattern in patterns:
                 names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
@@ -103,7 +106,7 @@ class CalcDB(object):
                             assert frag_dirnames[ifrag] == os.path.join(root, name, frag_path % ifrag)
                     mols.append(Molecule(name, nfrag, None, None))
             mols.sort()
-            with h5.File(full_fnh5) as f:
+            with h5.File(fnh5) as f:
                 f['geometries/names'] = np.array([mol.name for mol in mols])
                 f['geometries/nfrags'] = np.array([mol.nfrag for mol in mols])
                 frag_ranges = []
@@ -113,7 +116,7 @@ class CalcDB(object):
                     frag_ranges.append([begin, end])
                     begin = end
                 f['geometries/frag_ranges'] = np.array(frag_ranges)
-        return cls(root, fnh5, frag_path, report_missing)
+        return cls(fnh5, root, frag_path, report_missing)
 
     def select(self, pattern):
         """Find all the molecules that match the given pattern
@@ -134,7 +137,7 @@ class CalcDB(object):
 
     def lookup(self, name, ifrag):
         """Look up the index of a specific name.
-        
+
         Parameters
         ----------
         name : str
@@ -148,7 +151,7 @@ class CalcDB(object):
                 return index
             else:
                 return self.mols[index].begin + ifrag
-        raise ValueError('Name not found: %s' % name)        
+        raise ValueError('Name not found: %s' % name)
 
     def load_atom_data(self, source, indexes):
         """Load per-atom data for all molecules that match pattern
@@ -207,9 +210,9 @@ class CalcDB(object):
 
     def store_data(self, destination, data, shape, kind, dtype, do_frag):
         """Generic function to store per-atom data in the HDF5 file
-        
+
         If some data was already present in the destination, it will be lost!
-        
+
         Parameters
         ----------
         destination : str
@@ -263,11 +266,11 @@ class CalcDB(object):
             ibig = self.lookup(name, ifrag)
             if kind == 'atom':
                 if data_array.shape[1:] != shape:
-                    raise TypeError('Shape mismatch for %s:%s. Got %s while expecting %s.' % 
+                    raise TypeError('Shape mismatch for %s:%s. Got %s while expecting %s.' %
                                     (name, ifrag, data_array.shape[1:], shape))
                 begin, end = ranges[ibig]
                 if end - begin != len(data_array):
-                    raise TypeError('Shape mismatch for %s:%s. Got %i atoms while expecting %i.' % 
+                    raise TypeError('Shape mismatch for %s:%s. Got %i atoms while expecting %i.' %
                                     (name, ifrag, len(data_array), end-begin))
                 all_data_array[begin:end] = data_array
                 nfound += end - begin
@@ -346,7 +349,7 @@ FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype')
 class Fields(object):
     def __init__(self, info):
         self.info = info
-    
+
     def read(self, path):
         raise NotImplementedError
 
@@ -359,7 +362,7 @@ class XYZFields(Fields):
             FieldInfo('geometries/coordinates', (3,), 'atom', float),
         ])
         self.begin = 0
-    
+
     def read(self, path):
         mol = IOData.from_file(path)
         end = self.begin + mol.natom
@@ -401,7 +404,7 @@ class WPartFields(Fields):
             FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float),
             FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float),
         ])
-    
+
     def read(self, path):
         with h5.File(path, 'r') as f:
             return [

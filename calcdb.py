@@ -99,11 +99,16 @@ class CalcDB(object):
                     if frag_path is None:
                         nfrag = 0
                     else:
-                        frag_dirnames = glob(os.path.join(root, name, frag_path.replace('%i', '*')))
-                        frag_dirnames.sort()
+                        nfrag = 0
+                        frag_dirnames = []
+                        while True:
+                            frag_dirname = os.path.join(root, name, frag_path % nfrag)
+                            if os.path.isdir(frag_dirname):
+                                frag_dirnames.append(frag_dirname)
+                            else:
+                                break
+                            nfrag += 1
                         nfrag = len(frag_dirnames)
-                        for ifrag in xrange(nfrag):
-                            assert frag_dirnames[ifrag] == os.path.join(root, name, frag_path % ifrag)
                     mols.append(Molecule(name, nfrag, None, None))
             mols.sort()
             with h5.File(fnh5) as f:

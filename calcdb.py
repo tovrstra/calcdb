@@ -32,7 +32,12 @@ from horton import IOData, log, FCHKFile
 log.set_level(log.silent)
 
 
-__all__ = ['CalcDB', 'TXTFieldInfo', 'JSONFieldInfo']
+__all__ = [
+    'CalcDB',
+    'TXTFieldInfo', 'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges',
+    'cp2k_resp_charges',
+    'JSONFieldInfo',
+]
 
 
 Molecule = namedtuple('Molecule', 'name nfrag begin end')
@@ -443,15 +448,32 @@ class TXTFieldInfo(object):
         self.re = re.compile(restr)
 
 
+cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float, line=None, restr='^ ....\d  ..   (.*)$')
+restr_lowmul = '^ .{6}\d .{6} .{6}\d .{9}\d\.\d{6} *([-+0-9].*)$'
+cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float, line=None, restr=restr_lowmul)
+cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float, line=None, restr=restr_lowmul)
+cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float, line=None, restr='^  RESP .{6}\d  ..   (.*)$')
+
+
 class TXTFields(Fields):
     def read(self, path):
         with open(path) as f:
-            values = [None]*len(self.info)
+            values = [[]]*len(self.info)
             for iline, line in enumerate(f):
                 for iinfo, info in enumerate(self.info):
-                    if info.line == iline:
+                    if info.line is None or info.line == iline:
                         m = info.re.match(line)
-                        values[iinfo] = info.dtype(m.group(1))
+                        if m is not None:
+                            for s in m.groups():
+                                values[iinfo].append(info.dtype(s))
+            for iinfo, info in enumerate(self.info):
+                if info.kind == 'mol':
+                    if info.shape == ():
+                        values[iinfo] = values[iinfo][0]
+                    else:
+                        values[iinfo] = np.array(values[iinfo]).reshape(info.shape)
+                else:
+                    values[iinfo] = np.array(values[iinfo]).reshape((-1,) + info.shape)
             return values
 
 

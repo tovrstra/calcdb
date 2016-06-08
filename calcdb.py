@@ -418,23 +418,38 @@ class GaussianFCHKFields(Fields):
         return result
 
 
-class WPartFields(Fields):
+class HDF5FieldInfo(object):
+    def __init__(self, destination, shape, kind, dtype, hdf5_path):
+        self.destination = destination
+        self.shape = shape
+        self.kind = kind
+        self.dtype = dtype
+        self.hdf5_path = hdf5_path
+
+
+class HDF5Fields(Fields):
+    def read(self, path):
+        result = []
+        with h5.File(path, 'r') as f:
+            for info in self.info:
+                dset = f.get(info.hdf5_path)
+                if dset is None:
+                    result.append(None)
+                elif dset.shape == ():
+                    result.append(dset[()])
+                else:
+                    result.append(dset[:])
+        return result
+
+
+class WPartFields(HDF5Fields):
     def __init__(self, scheme):
         Fields.__init__(self, [
-            FieldInfo('estruct/atom_charges/%s' % scheme, (), 'atom', float),
-            FieldInfo('estruct/valence_charges/%s' % scheme, (), 'atom', float),
-            FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float),
-            FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float),
+            HDF5FieldInfo('estruct/atom_charges/%s' % scheme, (), 'atom', float, 'charges'),
+            HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), 'atom', float, 'valence_charges'),
+            HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float, 'valence_widths'),
+            HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float, 'core_charges'),
         ])
-
-    def read(self, path):
-        with h5.File(path, 'r') as f:
-            return [
-                f['charges'][:],
-                f['valence_charges'][:] if 'valence_charges' in f else None,
-                f['valence_widths'][:] if 'valence_widths' in f else None,
-                f['core_charges'][:] if 'core_charges' in f else None,
-            ]
 
 
 class TXTFieldInfo(object):

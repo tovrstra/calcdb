@@ -314,7 +314,7 @@ class CalcDB(object):
     def store_driver(self, basename, fields, do_frags=False):
         """Driver routine for loading stuff from a file"""
         # All data will be collected here
-        data = dict((info.destination, []) for info in fields.info)
+        data = dict((info.destination, []) for info in fields.infos)
 
         def parse_frag(mol, ifrag):
             """Sub-driver for given molecule and fragment."""
@@ -325,8 +325,8 @@ class CalcDB(object):
             if os.path.isfile(path):
                 values = fields.read(path)
             else:
-                values = [None]*len(fields.info)
-            for info, value in zip(fields.info, values):
+                values = [None]*len(fields.infos)
+            for info, value in zip(fields.infos, values):
                 data[info.destination].append((mol.name, ifrag, value))
 
         # Loop over all molecules (and fragments)
@@ -338,7 +338,7 @@ class CalcDB(object):
                 parse_frag(mol, None)
 
         # Call lower-level store_data
-        for info in fields.info:
+        for info in fields.infos:
             self.store_data(info.destination, data[info.destination], info.shape,
                             info.kind, info.dtype, do_frags)
 
@@ -356,21 +356,21 @@ class CalcDB(object):
         print 'Storing WPart output:', basename
         self.store_driver(basename, WPartFields(scheme), do_frag)
 
-    def store_txt(self, basename, info):
+    def store_txt(self, basename, infos):
         print 'Storing TXT:', basename
-        self.store_driver(basename, TXTFields(info))
+        self.store_driver(basename, TXTFields(infos))
 
-    def store_json(self, basename, info):
+    def store_json(self, basename, infos):
         print 'Storing JSON:', basename
-        self.store_driver(basename, JSONFields(info))
+        self.store_driver(basename, JSONFields(infos))
 
 
 FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype')
 
 
 class Fields(object):
-    def __init__(self, info):
-        self.info = info
+    def __init__(self, infos):
+        self.infos = infos
 
     def read(self, path):
         raise NotImplementedError
@@ -406,7 +406,7 @@ class GaussianFCHKFields(Fields):
         ])
 
     def read(self, path):
-        fchk_names = [info.fchk_name for info in self.info]
+        fchk_names = [info.fchk_name for info in self.infos]
         fchk = FCHKFile(path, fchk_names)
         result = []
         for fchk_name in fchk_names:
@@ -431,7 +431,7 @@ class HDF5Fields(Fields):
     def read(self, path):
         result = []
         with h5.File(path, 'r') as f:
-            for info in self.info:
+            for info in self.infos:
                 dset = f.get(info.hdf5_path)
                 if dset is None:
                     result.append(None)
@@ -473,15 +473,15 @@ cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', f
 class TXTFields(Fields):
     def read(self, path):
         with open(path) as f:
-            values = [[]]*len(self.info)
+            values = [[]]*len(self.infos)
             for iline, line in enumerate(f):
-                for iinfo, info in enumerate(self.info):
+                for iinfo, info in enumerate(self.infos):
                     if info.line is None or info.line == iline:
                         m = info.re.match(line)
                         if m is not None:
                             for s in m.groups():
                                 values[iinfo].append(info.dtype(s))
-            for iinfo, info in enumerate(self.info):
+            for iinfo, info in enumerate(self.infos):
                 if info.kind == 'mol':
                     if info.shape == ():
                         values[iinfo] = values[iinfo][0]
@@ -500,6 +500,6 @@ class JSONFields(Fields):
         values = []
         with open(path) as f:
             data = json.load(f)
-        for info in self.info:
+        for info in self.infos:
             values.append(data[info.json_name])
         return values

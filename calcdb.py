@@ -308,19 +308,31 @@ class CalcDB(object):
 
     def store_driver(self, basename, fields, do_frags=False):
         """Driver routine for loading stuff from a file"""
+        # All data will be collected here
         data = dict((info.destination, []) for info in fields.info)
+
+        def parse_frag(mol, ifrag):
+            """Sub-driver for given molecule and fragment."""
+            if ifrag is None:
+                path = os.path.join(self.root, mol.name, basename)
+            else:
+                path = os.path.join(self.root, mol.name, self.frag_path % ifrag, basename)
+            if os.path.isfile(path):
+                values = fields.read(path)
+            else:
+                values = [None]*len(fields.info)
+            for info, value in zip(fields.info, values):
+                data[info.destination].append((mol.name, ifrag, value))
+
+        # Loop over all molecules (and fragments)
         for mol in self.mols:
             if do_frags:
                 for ifrag in xrange(mol.nfrag):
-                    path = os.path.join(self.root, mol.name, self.frag_path % ifrag, basename)
-                    values = fields.read(path)
-                    for info, value in zip(fields.info, values):
-                        data[info.destination].append((mol.name, ifrag, value))
+                    parse_frag(mol, ifrag)
             else:
-                path = os.path.join(self.root, mol.name, basename)
-                values = fields.read(path)
-                for info, value in zip(fields.info, values):
-                    data[info.destination].append((mol.name, None, value))
+                parse_frag(mol, None)
+
+        # Call lower-level store_data
         for info in fields.info:
             self.store_data(info.destination, data[info.destination], info.shape,
                             info.kind, info.dtype, do_frags)

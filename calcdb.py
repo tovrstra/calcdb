@@ -34,9 +34,10 @@ log.set_level(log.silent)
 
 __all__ = [
     'CalcDB',
-    'TXTFieldInfo', 'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges',
-    'cp2k_resp_charges',
-    'JSONFieldInfo',
+    'HDF5Fields', 'HDF5ChargeFields',
+    'TXTFieldInfo', 'TXTFields',
+    'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges', 'cp2k_resp_charges',
+    'JSONFieldInfo', 'JSONFields',
 ]
 
 
@@ -219,9 +220,10 @@ class CalcDB(object):
                 return np.array(result)
 
     def store_data(self, destination, data, shape, kind, dtype, do_frag):
-        """Generic function to store per-atom data in the HDF5 file
+        """Generic function to store data in the HDF5 file.
 
-        If some data was already present in the destination, it will be lost!
+        If some data was already present in the destination, it will be overwritten and
+        permanently lost!
 
         Parameters
         ----------
@@ -311,8 +313,18 @@ class CalcDB(object):
                 else:
                     f[destination] = all_data_array
 
-    def store_driver(self, basename, fields, do_frags=False):
-        """Driver routine for loading stuff from a file"""
+    def store_fields(self, basename, fields, do_frag=False):
+        """Driver routine for loading stuff from a file and storing it in the databse.
+
+        Parameters
+        ----------
+        basename : str
+                   The basename of the file to load the data from.
+        fields : Fields
+                 An object that can read specific fields from a data file.
+        do_frag : bool
+                  If True, fragment data will be loaded instead of the x-mer data.
+        """
         # All data will be collected here
         data = dict((info.destination, []) for info in fields.infos)
 
@@ -331,7 +343,7 @@ class CalcDB(object):
 
         # Loop over all molecules (and fragments)
         for mol in self.mols:
-            if do_frags:
+            if do_frag:
                 for ifrag in xrange(mol.nfrag):
                     parse_frag(mol, ifrag)
             else:
@@ -340,29 +352,11 @@ class CalcDB(object):
         # Call lower-level store_data
         for info in fields.infos:
             self.store_data(info.destination, data[info.destination], info.shape,
-                            info.kind, info.dtype, do_frags)
+                            info.kind, info.dtype, do_frag)
 
     def store_geometries(self, basename, do_frag=False):
-        """Store the geometries in the database"""
-        print 'Storing geometries'
-        self.store_driver(basename, XYZFields(do_frag), do_frag)
-
-    def store_gaussian_fchk(self, basename='gaussian.fchk', do_frag=False):
-        """Load all the useful stuff from a Gaussian FCHK file"""
-        print 'Storing Gaussian FCHK files:', basename
-        self.store_driver(basename, GaussianFCHKFields(), do_frag)
-
-    def store_wpart(self, basename, scheme, do_frag=False):
-        print 'Storing WPart output:', basename
-        self.store_driver(basename, WPartFields(scheme), do_frag)
-
-    def store_txt(self, basename, infos):
-        print 'Storing TXT:', basename
-        self.store_driver(basename, TXTFields(infos))
-
-    def store_json(self, basename, infos):
-        print 'Storing JSON:', basename
-        self.store_driver(basename, JSONFields(infos))
+        """Store the geometries in the database."""
+        self.store_fields(basename, XYZFields(do_frag), do_frag)
 
 
 FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype')
@@ -401,7 +395,7 @@ class GaussianFCHKFields(Fields):
         Fields.__init__(self, [
             GaussianFCHKFieldInfo('estruct/mol_charges', (), 'mol', int, 'Charge'),
             GaussianFCHKFieldInfo('estruct/mol_dipoles', (3,), 'mol', float, 'Dipole Moment'),
-            GaussianFCHKFieldInfo('estruct/atom_charges/mulliken', (), 'atom', float, 'Mulliken Charges'),
+            GaussianFCHKFieldInfo('estruct/atom_charges/gaussian_mulliken', (), 'atom', float, 'Mulliken Charges'),
             GaussianFCHKFieldInfo('estruct/eff_core_charges', (), 'atom', float, 'Nuclear charges'),
         ])
 
@@ -442,7 +436,7 @@ class HDF5Fields(Fields):
         return result
 
 
-class WPartFields(HDF5Fields):
+class HDF5ChargeFields(HDF5Fields):
     def __init__(self, scheme):
         Fields.__init__(self, [
             HDF5FieldInfo('estruct/atom_charges/%s' % scheme, (), 'atom', float, 'charges'),

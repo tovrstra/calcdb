@@ -296,7 +296,7 @@ class CalcDB(object):
             destination, nfound, ntotal, fraction*100, kind, do_frag, dtype.__name__)
         if self.report_missing:
             for name, ifrag in sorted(missing):
-                print 'Missing %70s %4s | %30s' % (name, ifrag, destination)
+                print 'Missing %70s  %4s  |  %30s' % (name, ifrag, destination)
 
         # Store it in the HDF5 file, only if some data was read
         if nfound > 0:

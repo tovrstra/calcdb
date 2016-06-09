@@ -165,7 +165,7 @@ class CalcDB(object):
                 return self.cases[index].begin + ifrag
         raise ValueError('Name not found: %s' % name)
 
-    def load_data(self, source, indexes):
+    def load_data(self, source, indexes, do_frag=False):
         """Load data for all cases listed in in indexes
 
         Parameters
@@ -173,22 +173,31 @@ class CalcDB(object):
         source : str
                  The path to the HDF5 dataset with data for all cases.
         indexes : int or list of ints
-                  The cases index(es) to be loaded
+                  The cases index(es) to be loaded.
+        do_frag : bool
+                  Treat the data as fragment data.
         """
         with h5.File(self.fnh5, 'r') as f:
-            if f[source].kind == 'atom':
-                assert f[source].shape[0] == f['geometries/atom_ranges'][-1,1]
+            if f[source].attrs['kind'] == 'atom':
+                if do_frag:
+                    atom_ranges = f['frag/geometries/atom_ranges']
+                else:
+                    atom_ranges = f['full/geometries/atom_ranges']
+                assert f[source].shape[0] == atom_ranges[-1,1]
                 if isinstance(indexes, int):
-                    begin, end = f['geometries/atom_ranges'][indexes]
+                    begin, end = atom_ranges[indexes]
                     return f[source][begin:end]
                 else:
                     result = []
                     for index in indexes:
-                        begin, end = f['geometries/atom_ranges'][index]
+                        begin, end = atom_ranges[index]
                         result.append(f[source][begin:end])
                     return result
-            elif f[source].kind == 'mol':
-                assert f[source].shape[0] == f['geometries/names'].shape[0]
+            elif f[source].attrs['kind'] == 'mol':
+                if do_frag:
+                    assert f[source].shape[0] == f['frag/geometries/names'].shape[0]
+                else:
+                    assert f[source].shape[0] == f['full/geometries/names'].shape[0]
                 if isinstance(indexes, int):
                     return f[source][indexes]
                 else:
@@ -196,6 +205,8 @@ class CalcDB(object):
                     for index in indexes:
                         result.append(f[source][index])
                     return np.array(result)
+            else:
+                raise TypeError('Uknown data kind: %s' % f[source].attrs['kind'])
 
     def _get_file_path(self, name, ifrag, basename):
         if ifrag is None:

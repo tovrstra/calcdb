@@ -71,9 +71,9 @@ class CalcDB(object):
 
         with h5.File(self.fnh5, 'r') as f:
             self.cases = []
-            self._names = f['geometries/names'][:]  # only to be used by lookup
+            self._names = f['full/geometries/names'][:]  # only to be used by lookup
             begin = 0
-            for name, nfrag in zip(self._names, f['geometries/nfrags'][:]):
+            for name, nfrag in zip(self._names, f['full/geometries/nfrags'][:]):
                 end = begin + nfrag
                 self.cases.append(Case(name, nfrag, begin, end))
                 begin = end
@@ -119,15 +119,15 @@ class CalcDB(object):
                     cases.append(Case(name, nfrag, None, None))
             cases.sort()
             with h5.File(fnh5) as f:
-                f['geometries/names'] = np.array([case.name for case in cases])
-                f['geometries/nfrags'] = np.array([case.nfrag for case in cases])
+                f['full/geometries/names'] = np.array([case.name for case in cases])
+                f['full/geometries/nfrags'] = np.array([case.nfrag for case in cases])
                 frag_ranges = []
                 begin = 0
                 for case in cases:
                     end = begin + case.nfrag
                     frag_ranges.append([begin, end])
                     begin = end
-                f['geometries/frag_ranges'] = np.array(frag_ranges)
+                f['full/geometries/frag_ranges'] = np.array(frag_ranges)
         return cls(fnh5, root, frag_path, report_missing)
 
     def select(self, pattern):
@@ -245,6 +245,13 @@ class CalcDB(object):
                 else:
                     ranges = f['full/geometries/atom_ranges'][:]
             ntotal = ranges[-1,1]
+        elif kind == 'frag':
+            with h5.File(self.fnh5, 'r') as f:
+                if do_frag:
+                    ranges = f['frag/geometries/frag_ranges'][:]
+                else:
+                    ranges = f['full/geometries/frag_ranges'][:]
+            ntotal = ranges[-1,1]
         elif kind == 'mol':
             if do_frag:
                 ntotal = sum(case.nfrag for case in self.cases)
@@ -272,19 +279,19 @@ class CalcDB(object):
                 continue
             assert np.isfinite(data_array).all()
             ibig = self.lookup(name, ifrag)
-            if kind == 'atom':
+            if kind == 'mol':
+                all_data_array[ibig] = data_array
+                nfound += 1
+            elif kind == 'atom' or kind == 'frag':
                 if data_array.shape[1:] != shape:
                     raise TypeError('Shape mismatch for %s:%s. Got %s while expecting %s.' %
                                     (name, ifrag, data_array.shape[1:], shape))
                 begin, end = ranges[ibig]
                 if end - begin != len(data_array):
-                    raise TypeError('Shape mismatch for %s:%s. Got %i atoms while expecting %i.' %
-                                    (name, ifrag, len(data_array), end-begin))
+                    raise TypeError('Shape mismatch for %s:%s. Got %i %ss while expecting %i.' %
+                                    (name, ifrag, len(data_array), kind, end-begin))
                 all_data_array[begin:end] = data_array
                 nfound += end - begin
-            elif kind == 'mol':
-                all_data_array[ibig] = data_array
-                nfound += 1
             else:
                 raise ValueError('Uknown kind: %s' % kind)
             missing.discard((name, ifrag))
@@ -299,7 +306,7 @@ class CalcDB(object):
         fraction = float(nfound)/ntotal
         print '    Storing %.0f%% of %s (%i/%i): kind=%s, shape=%s, type=%s' % (
             fraction*100, destination, nfound, ntotal, kind, shape, dtype.__name__)
-        if self.report_missing:
+        if self.report_missing and nfound > 0:
             for name, ifrag in sorted(missing):
                 path = self._get_file_path(name, ifrag, '')
                 print '        Missing', path
@@ -394,7 +401,7 @@ class GaussianFCHKFields(Fields):
         Fields.__init__(self, [
             GaussianFCHKFieldInfo('estruct/%s_mol_charges' % prefix, (), 'mol', int, 'Charge'),
             GaussianFCHKFieldInfo('estruct/%s_mol_dipoles' % prefix, (3,), 'mol', float, 'Dipole Moment'),
-            GaussianFCHKFieldInfo('estruct/atom_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
+            GaussianFCHKFieldInfo('estruct/net_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
             GaussianFCHKFieldInfo('estruct/%s_eff_core_charges' % prefix, (), 'atom', float, 'Nuclear charges'),
         ])
 
@@ -430,28 +437,28 @@ class HDF5Fields(Fields):
 
 
 class HDF5ChargeFields(HDF5Fields):
-    def __init__(self, scheme):
+    def __init__(self, scheme, kind='atom'):
         Fields.__init__(self, [
-            HDF5FieldInfo('estruct/atom_charges/%s' % scheme, (), 'atom', float, 'charges'),
-            HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), 'atom', float, 'valence_charges'),
-            HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float, 'valence_widths'),
-            HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float, 'core_charges'),
-            HDF5FieldInfo('estruct/populations/%s' % scheme, (), 'atom', float, 'populations'),
-            HDF5FieldInfo('estruct/self_populations/%s' % scheme, (), 'atom', float, 'self_populations'),
+            HDF5FieldInfo('estruct/net_charges/%s' % scheme, (), kind, float, 'charges'),
+            HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), kind, float, 'valence_charges'),
+            HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), kind, float, 'valence_widths'),
+            HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), kind, float, 'core_charges'),
+            HDF5FieldInfo('estruct/populations/%s' % scheme, (), kind, float, 'populations'),
+            HDF5FieldInfo('estruct/self_populations/%s' % scheme, (), kind, float, 'self_populations'),
         ])
 
 
 TXTFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype line re')
 
 
-cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float,
+cp2k_ddap_charges = TXTFieldInfo('estruct/net_charges/cp2k_ddap', (), 'atom', float,
                                  None, re.compile('^ ....\d  ..   (.*)$'))
 restr_lowmul = '^ .{6}\d .{6} .{6}\d .{9}\d\.\d{6} *([-+0-9].*)$'
-cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float,
+cp2k_lowdin_charges = TXTFieldInfo('estruct/net_charges/cp2k_lowdin', (), 'atom', float,
                                    None, re.compile(restr_lowmul))
-cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float,
+cp2k_mulliken_charges = TXTFieldInfo('estruct/net_charges/cp2k_mulliken', (), 'atom', float,
                                      None, re.compile(restr_lowmul))
-cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float,
+cp2k_resp_charges = TXTFieldInfo('estruct/net_charges/cp2k_resp', (), 'atom', float,
                                  None, re.compile('^  RESP .{6}\d  ..   (.*)$'))
 
 

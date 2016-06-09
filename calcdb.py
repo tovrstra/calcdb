@@ -164,8 +164,8 @@ class CalcDB(object):
                 return self.cases[index].begin + ifrag
         raise ValueError('Name not found: %s' % name)
 
-    def load_atom_data(self, source, indexes):
-        """Load per-atom data for all cases in indexes
+    def load_data(self, source, indexes):
+        """Load data for all cases listed in in indexes
 
         Parameters
         ----------
@@ -175,49 +175,26 @@ class CalcDB(object):
                   The cases index(es) to be loaded
         """
         with h5.File(self.fnh5, 'r') as f:
-            assert f[source].shape[0] == f['geometries/atom_ranges'][-1,1]
-            if isinstance(indexes, int):
-                begin, end = f['geometries/atom_ranges'][indexes]
-                return f[source][begin:end]
-            else:
-                result = []
-                for index in indexes:
-                    begin, end = f['geometries/atom_ranges'][index]
-                    result.append(f[source][begin:end])
-                return result
-
-    def load_frag_data(self, source, indexes):
-        with h5.File(self.fnh5, 'r') as f:
-            assert f[source].shape[0] == f['geometries/frag_ranges'][-1,1]
-            if isinstance(indexes, int):
-                begin, end = f['geometries/frag_ranges'][indexes]
-                return f[source][begin:end]
-            else:
-                result = []
-                for index in indexes:
-                    begin, end = f['geometries/frag_ranges'][index]
-                    result.append(f[source][begin:end])
-                return result
-
-    def load_mol_data(self, source, indexes):
-        """Load per-molecule data for all cases in indexes
-
-        Parameters
-        ----------
-        source : str
-                 The path to the HDF5 dataset with data for all cases.
-        indexes : int or list of ints
-                  The case index(es) to be loaded
-        """
-        with h5.File(self.fnh5, 'r') as f:
-            assert f[source].shape[0] == f['geometries/names'].shape[0]
-            if isinstance(indexes, int):
-                return f[source][indexes]
-            else:
-                result = []
-                for index in indexes:
-                    result.append(f[source][index])
-                return np.array(result)
+            if f[source].kind == 'atom':
+                assert f[source].shape[0] == f['geometries/atom_ranges'][-1,1]
+                if isinstance(indexes, int):
+                    begin, end = f['geometries/atom_ranges'][indexes]
+                    return f[source][begin:end]
+                else:
+                    result = []
+                    for index in indexes:
+                        begin, end = f['geometries/atom_ranges'][index]
+                        result.append(f[source][begin:end])
+                    return result
+            elif f[source].kind == 'mol':
+                assert f[source].shape[0] == f['geometries/names'].shape[0]
+                if isinstance(indexes, int):
+                    return f[source][indexes]
+                else:
+                    result = []
+                    for index in indexes:
+                        result.append(f[source][index])
+                    return np.array(result)
 
     def _get_file_path(self, name, ifrag, basename):
         if ifrag is None:
@@ -322,6 +299,7 @@ class CalcDB(object):
                     f[destination][:] = all_data_array
                 else:
                     f[destination] = all_data_array
+                f[destination].attrs['kind'] = kind
 
     def store_fields(self, basename, fields, do_frag=False):
         """Driver routine for loading stuff from a file and storing it in the databse.

@@ -412,13 +412,7 @@ class GaussianFCHKFields(Fields):
         return result
 
 
-class HDF5FieldInfo(object):
-    def __init__(self, destination, shape, kind, dtype, hdf5_path):
-        self.destination = destination
-        self.shape = shape
-        self.kind = kind
-        self.dtype = dtype
-        self.hdf5_path = hdf5_path
+HDF5FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype hdf5_path')
 
 
 class HDF5Fields(Fields):
@@ -446,22 +440,18 @@ class HDF5ChargeFields(HDF5Fields):
         ])
 
 
-class TXTFieldInfo(object):
-    def __init__(self, destination, shape, kind, dtype, line, restr):
-        self.destination = destination
-        self.shape = shape
-        self.kind = kind
-        self.dtype = dtype
-        self.line = line
-        self.restr = restr
-        self.re = re.compile(restr)
+TXTFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype line re')
 
 
-cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float, line=None, restr='^ ....\d  ..   (.*)$')
+cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float,
+                                 None, re.compile('^ ....\d  ..   (.*)$'))
 restr_lowmul = '^ .{6}\d .{6} .{6}\d .{9}\d\.\d{6} *([-+0-9].*)$'
-cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float, line=None, restr=restr_lowmul)
-cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float, line=None, restr=restr_lowmul)
-cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float, line=None, restr='^  RESP .{6}\d  ..   (.*)$')
+cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float,
+                                   None, re.compile(restr_lowmul))
+cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float,
+                                     None, re.compile(restr_lowmul))
+cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float,
+                                 None, re.compile('^  RESP .{6}\d  ..   (.*)$'))
 
 
 class TXTFields(Fields):

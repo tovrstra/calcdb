@@ -219,6 +219,13 @@ class CalcDB(object):
                     result.append(f[source][index])
                 return np.array(result)
 
+    def _get_file_path(self, name, ifrag, basename):
+        if ifrag is None:
+            result = os.path.join(self.root, name, basename)
+        else:
+            result = os.path.join(self.root, name, self.frag_path % ifrag, basename)
+        return os.path.normpath(result)
+
     def store_data(self, destination, data, shape, kind, dtype, do_frag):
         """Generic function to store data in the HDF5 file.
 
@@ -299,11 +306,12 @@ class CalcDB(object):
 
         # Check the completness of the data
         fraction = float(nfound)/ntotal
-        print '%50s: %7i / %7i   (%.0f%%)  %4s  frag=%s type=%s' % (
-            destination, nfound, ntotal, fraction*100, kind, do_frag, dtype.__name__)
+        print '    Storing %.0f%% of %s (%i/%i): kind=%s, shape=%s, type=%s' % (
+            fraction*100, destination, nfound, ntotal, kind, shape, dtype.__name__)
         if self.report_missing:
             for name, ifrag in sorted(missing):
-                print 'Missing %70s  %4s  |  %30s' % (name, ifrag, destination)
+                path = self._get_file_path(name, ifrag, '')
+                print '        Missing', path
 
         # Store it in the HDF5 file, only if some data was read
         if nfound > 0:
@@ -325,15 +333,13 @@ class CalcDB(object):
         do_frag : bool
                   If True, fragment data will be loaded instead of the x-mer data.
         """
+        print 'Loading from %s with %s (do_frag=%s)' % (basename, fields.__class__.__name__, do_frag)
         # All data will be collected here
         data = dict((info.destination, []) for info in fields.infos)
 
         def parse_frag(mol, ifrag):
             """Sub-driver for given molecule and fragment."""
-            if ifrag is None:
-                path = os.path.join(self.root, mol.name, basename)
-            else:
-                path = os.path.join(self.root, mol.name, self.frag_path % ifrag, basename)
+            path = self._get_file_path(mol.name, ifrag, basename)
             if os.path.isfile(path):
                 values = fields.read(path)
             else:
@@ -353,6 +359,7 @@ class CalcDB(object):
         for info in fields.infos:
             self.store_data(info.destination, data[info.destination], info.shape,
                             info.kind, info.dtype, do_frag)
+        print
 
     def store_geometries(self, basename, do_frag=False):
         """Store the geometries in the database."""

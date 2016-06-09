@@ -34,6 +34,7 @@ log.set_level(log.silent)
 
 __all__ = [
     'CalcDB',
+    'Fields', 'FieldInfo',
     'HDF5Fields', 'HDF5ChargeFields',
     'TXTFieldInfo', 'TXTFields',
     'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges', 'cp2k_resp_charges',

@@ -391,12 +391,12 @@ GaussianFCHKFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype fc
 
 
 class GaussianFCHKFields(Fields):
-    def __init__(self):
+    def __init__(self, prefix='gaussian'):
         Fields.__init__(self, [
-            GaussianFCHKFieldInfo('estruct/mol_charges', (), 'mol', int, 'Charge'),
-            GaussianFCHKFieldInfo('estruct/mol_dipoles', (3,), 'mol', float, 'Dipole Moment'),
-            GaussianFCHKFieldInfo('estruct/atom_charges/gaussian_mulliken', (), 'atom', float, 'Mulliken Charges'),
-            GaussianFCHKFieldInfo('estruct/eff_core_charges', (), 'atom', float, 'Nuclear charges'),
+            GaussianFCHKFieldInfo('estruct/%s_mol_charges' % prefix, (), 'mol', int, 'Charge'),
+            GaussianFCHKFieldInfo('estruct/%s_mol_dipoles' % prefix, (3,), 'mol', float, 'Dipole Moment'),
+            GaussianFCHKFieldInfo('estruct/atom_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
+            GaussianFCHKFieldInfo('estruct/%s_eff_core_charges' % prefix, (), 'atom', float, 'Nuclear charges'),
         ])
 
     def read(self, path):

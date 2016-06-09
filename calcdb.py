@@ -437,6 +437,7 @@ class HDF5ChargeFields(HDF5Fields):
             HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), 'atom', float, 'valence_charges'),
             HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float, 'valence_widths'),
             HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float, 'core_charges'),
+            HDF5FieldInfo('estruct/populations/%s' % scheme, (), 'atom', float, 'populations'),
         ])
 
 

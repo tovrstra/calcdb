@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 
-Molecule = namedtuple('Molecule', 'name nfrag begin end')
+Case = namedtuple('Case', 'name nfrag begin end')
 
 
 class CalcDB(object):
@@ -69,15 +69,15 @@ class CalcDB(object):
         self.report_missing = report_missing
 
         with h5.File(self.fnh5, 'r') as f:
-            self.mols = []
+            self.cases = []
             self._names = f['geometries/names'][:]  # only to be used by lookup
             begin = 0
             for name, nfrag in zip(self._names, f['geometries/nfrags'][:]):
                 end = begin + nfrag
-                self.mols.append(Molecule(name, nfrag, begin, end))
+                self.cases.append(Case(name, nfrag, begin, end))
                 begin = end
-        print 'Number of molecules', len(self.mols)
-        print 'Number of fragments', sum(mol.nfrag for mol in self.mols)
+        print 'Number of cases', len(self.cases)
+        print 'Number of fragments', sum(case.nfrag for case in self.cases)
 
     @classmethod
     def from_scratch(cls, fnh5, root, patterns, frag_path=None, report_missing=True):
@@ -98,7 +98,7 @@ class CalcDB(object):
         """
         if not os.path.isfile(fnh5):
             print 'Looking up all directories (slow)'
-            mols = []
+            cases = []
             for pattern in patterns:
                 names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
                 for name in names:
@@ -115,22 +115,22 @@ class CalcDB(object):
                                 break
                             nfrag += 1
                         nfrag = len(frag_dirnames)
-                    mols.append(Molecule(name, nfrag, None, None))
-            mols.sort()
+                    cases.append(Case(name, nfrag, None, None))
+            cases.sort()
             with h5.File(fnh5) as f:
-                f['geometries/names'] = np.array([mol.name for mol in mols])
-                f['geometries/nfrags'] = np.array([mol.nfrag for mol in mols])
+                f['geometries/names'] = np.array([case.name for case in cases])
+                f['geometries/nfrags'] = np.array([case.nfrag for case in cases])
                 frag_ranges = []
                 begin = 0
-                for mol in mols:
-                    end = begin + mol.nfrag
+                for case in cases:
+                    end = begin + case.nfrag
                     frag_ranges.append([begin, end])
                     begin = end
                 f['geometries/frag_ranges'] = np.array(frag_ranges)
         return cls(fnh5, root, frag_path, report_missing)
 
     def select(self, pattern):
-        """Find all the molecules that match the given pattern
+        """Find all the cases that match the given pattern
 
         Parameters
         ----------
@@ -141,8 +141,8 @@ class CalcDB(object):
             return pattern
         else:
             indexes = []
-            for i, mol in enumerate(self.mols):
-                if fnmatch(mol.name, pattern):
+            for i, case in enumerate(self.cases):
+                if fnmatch(case.name, pattern):
                     indexes.append(i)
             return np.array(indexes)
 
@@ -161,18 +161,18 @@ class CalcDB(object):
             if ifrag is None:
                 return index
             else:
-                return self.mols[index].begin + ifrag
+                return self.cases[index].begin + ifrag
         raise ValueError('Name not found: %s' % name)
 
     def load_atom_data(self, source, indexes):
-        """Load per-atom data for all molecules that match pattern
+        """Load per-atom data for all cases in indexes
 
         Parameters
         ----------
         source : str
-                 The path to the HDF5 dataset with data for all molecules.
+                 The path to the HDF5 dataset with data for all cases.
         indexes : int or list of ints
-                  The molecule index(es) to be loaded
+                  The cases index(es) to be loaded
         """
         with h5.File(self.fnh5, 'r') as f:
             assert f[source].shape[0] == f['geometries/atom_ranges'][-1,1]
@@ -200,14 +200,14 @@ class CalcDB(object):
                 return result
 
     def load_mol_data(self, source, indexes):
-        """Load per-molecule data for all molecules that match pattern
+        """Load per-molecule data for all cases in indexes
 
         Parameters
         ----------
         source : str
-                 The path to the HDF5 dataset with data for all molecules.
+                 The path to the HDF5 dataset with data for all cases.
         indexes : int or list of ints
-                  The molecule index(es) to be loaded
+                  The case index(es) to be loaded
         """
         with h5.File(self.fnh5, 'r') as f:
             assert f[source].shape[0] == f['geometries/names'].shape[0]
@@ -254,13 +254,13 @@ class CalcDB(object):
                 if do_frag:
                     ranges = f['frag/geometries/atom_ranges'][:]
                 else:
-                    ranges = f['geometries/atom_ranges'][:]
+                    ranges = f['full/geometries/atom_ranges'][:]
             ntotal = ranges[-1,1]
         elif kind == 'mol':
             if do_frag:
-                ntotal = sum(mol.nfrag for mol in self.mols)
+                ntotal = sum(case.nfrag for case in self.cases)
             else:
-                ntotal = len(self.mols)
+                ntotal = len(self.cases)
         all_data_array = np.empty((ntotal,) + shape, dtype=dtype)
         if issubclass(dtype, float):
             all_data_array.fill(np.nan)
@@ -270,12 +270,12 @@ class CalcDB(object):
         # Prepare data to count missing pieces of information
         nfound = 0
         missing = set([])
-        for mol in self.mols:
+        for case in self.cases:
             if do_frag:
-                for ifrag in xrange(mol.nfrag):
-                    missing.add((mol.name, ifrag))
+                for ifrag in xrange(case.nfrag):
+                    missing.add((case.name, ifrag))
             else:
-                missing.add((mol.name, None))
+                missing.add((case.name, None))
 
         # Go through all the data and store it in the right place in the array.
         for name, ifrag, data_array in data:
@@ -303,6 +303,8 @@ class CalcDB(object):
         # Add prefix in case of fragment data
         if do_frag:
             destination = 'frag/%s' % destination
+        else:
+            destination = 'full/%s' % destination
 
         # Check the completness of the data
         fraction = float(nfound)/ntotal
@@ -337,23 +339,23 @@ class CalcDB(object):
         # All data will be collected here
         data = dict((info.destination, []) for info in fields.infos)
 
-        def parse_frag(mol, ifrag):
-            """Sub-driver for given molecule and fragment."""
-            path = self._get_file_path(mol.name, ifrag, basename)
+        def parse_frag(case, ifrag):
+            """Sub-driver for given case and fragment."""
+            path = self._get_file_path(case.name, ifrag, basename)
             if os.path.isfile(path):
                 values = fields.read(path)
             else:
                 values = [None]*len(fields.infos)
             for info, value in zip(fields.infos, values):
-                data[info.destination].append((mol.name, ifrag, value))
+                data[info.destination].append((case.name, ifrag, value))
 
-        # Loop over all molecules (and fragments)
-        for mol in self.mols:
+        # Loop over all cases (and fragments)
+        for case in self.cases:
             if do_frag:
-                for ifrag in xrange(mol.nfrag):
-                    parse_frag(mol, ifrag)
+                for ifrag in xrange(case.nfrag):
+                    parse_frag(case, ifrag)
             else:
-                parse_frag(mol, None)
+                parse_frag(case, None)
 
         # Call lower-level store_data
         for info in fields.infos:

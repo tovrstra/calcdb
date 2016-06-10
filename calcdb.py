@@ -45,6 +45,68 @@ __all__ = [
 Case = namedtuple('Case', 'name nfrag begin end')
 
 
+def _lookup_cases(root, patterns, frag_path=None):
+    """Find all systems and their fragments by scanning directories
+
+    Parameters
+    ----------
+    root : str
+           The root directory where the calculations and the database are stored.
+    patterns : list of str
+               List of fnmatch strings with directories containint calculations
+    frag_path : str
+               Relative path to the fragment calculations (contains on time '%i').
+    """
+    print 'Looking up all directories (slow)'
+    full_cases = []
+    frag_cases = []
+    for pattern in patterns:
+        full_names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
+        for full_name in full_names:
+            if frag_path is None:
+                nfrag = 0
+            else:
+                nfrag = 0
+                while True:
+                    frag_name = os.path.normpath(os.path.join(full_name, frag_path % nfrag))
+                    frag_dirname = os.path.join(root, frag_name)
+                    if not os.path.isdir(frag_dirname):
+                        break
+                    frag_cases.append(Case(frag_name, None, None, None))
+                    nfrag += 1
+            full_cases.append(Case(full_name, nfrag, None, None))
+    full_cases.sort()
+    frag_cases.sort()
+    return full_cases, frag_cases
+
+
+def _store_cases(g, cases):
+    """Store a set of cases in a HDF5 group (initialization)
+
+    Parameters
+    ----------
+    g : h5.Group
+        The group where the cases are stored
+    cases : list
+            A list of Case instances
+    """
+    g['geometries/names'] = np.array([case.name for case in cases])
+    g['geometries/names'].attrs['kind'] = 'mol'
+    if any(case.nfrag is None for case in cases):
+        return
+    g['geometries/nfrags'] = np.array([case.nfrag for case in cases])
+    g['geometries/nfrags'].attrs['kind'] = 'mol'
+    frag_ranges = []
+    begin = 0
+    for case in cases:
+        end = begin + case.nfrag
+        frag_ranges.append([begin, end])
+        begin = end
+    g['geometries/frag_ranges'] = np.array(frag_ranges)
+    g['geometries/frag_ranges'].attrs['kind'] = 'mol'
+
+
+
 class CalcDB(object):
     def __init__(self, fnh5, root=None, frag_path=None, report_missing=True):
         """Initialize a calculation database
@@ -98,36 +160,10 @@ class CalcDB(object):
                          When True, every name is printed for which no data is provided.
         """
         if not os.path.isfile(fnh5):
-            print 'Looking up all directories (slow)'
-            cases = []
-            for pattern in patterns:
-                names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
-                for name in names:
-                    if frag_path is None:
-                        nfrag = 0
-                    else:
-                        nfrag = 0
-                        frag_dirnames = []
-                        while True:
-                            frag_dirname = os.path.join(root, name, frag_path % nfrag)
-                            if os.path.isdir(frag_dirname):
-                                frag_dirnames.append(frag_dirname)
-                            else:
-                                break
-                            nfrag += 1
-                        nfrag = len(frag_dirnames)
-                    cases.append(Case(name, nfrag, None, None))
-            cases.sort()
+            full_cases, frag_cases = _lookup_cases(root, patterns, frag_path)
             with h5.File(fnh5) as f:
-                f['full/geometries/names'] = np.array([case.name for case in cases])
-                f['full/geometries/nfrags'] = np.array([case.nfrag for case in cases])
-                frag_ranges = []
-                begin = 0
-                for case in cases:
-                    end = begin + case.nfrag
-                    frag_ranges.append([begin, end])
-                    begin = end
-                f['full/geometries/frag_ranges'] = np.array(frag_ranges)
+                _store_cases(f.create_group('full'), full_cases)
+                _store_cases(f.create_group('frag'), frag_cases)
         return cls(fnh5, root, frag_path, report_missing)
 
     def select(self, pattern):

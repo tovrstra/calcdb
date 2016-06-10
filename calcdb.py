@@ -37,7 +37,8 @@ __all__ = [
     'FieldInfo', 'Fields', 'GaussianFCHKFields',
     'HDF5FieldInfo', 'HDF5Fields', 'HDF5AtomChargeFields',
     'TXTFieldInfo', 'TXTFields',
-    'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges', 'cp2k_resp_charges',
+    'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges',
+    'cp2k_resp_charges', 'cp2k_mol_population',
     'JSONFieldInfo', 'JSONFields',
 ]
 
@@ -509,7 +510,8 @@ cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), '
                                      None, re.compile(restr_lowmul))
 cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float,
                                  None, re.compile('^  RESP .{6}\d  ..   (.*)$'))
-
+cp2k_mol_population = TXTFieldInfo('estruct/mol_populations/cp2k', (), 'mol', float,
+                                   None, re.compile('^ Number of electrons:   (.*\d*)$'))
 
 class TXTFields(Fields):
     def read(self, path):

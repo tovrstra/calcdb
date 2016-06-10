@@ -170,6 +170,11 @@ class CalcDB(object):
                 _store_cases(f.create_group('frag'), frag_cases)
         return cls(fnh5, root, frag_path, report_missing)
 
+    def __contains__(self, h5_path):
+        """Test if a path is present in the HDF5 file"""
+        with h5.File(self.fnh5, 'r') as f:
+            return h5_path in f
+
     def select(self, pattern, do_frag=False):
         """Find all the cases that match the given pattern.
 

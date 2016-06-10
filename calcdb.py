@@ -34,8 +34,8 @@ log.set_level(log.silent)
 
 __all__ = [
     'CalcDB',
-    'Fields', 'FieldInfo', 'GaussianFCHKFields',
-    'HDF5Fields', 'HDF5ChargeFields',
+    'FieldInfo', 'Fields', 'GaussianFCHKFields',
+    'HDF5FieldInfo', 'HDF5Fields', 'HDF5AtomChargeFields',
     'TXTFieldInfo', 'TXTFields',
     'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges', 'cp2k_resp_charges',
     'JSONFieldInfo', 'JSONFields',
@@ -132,15 +132,19 @@ class CalcDB(object):
         self.report_missing = report_missing
 
         with h5.File(self.fnh5, 'r') as f:
-            self.cases = []
-            self._names = f['full/geometries/names'][:]  # only to be used by lookup
+            self.full_cases = []
+            self.frag_cases = []
+            self._full_names = f['full/geometries/names'][:]  # only to be used by lookup
+            self._frag_names = f['frag/geometries/names'][:]  # only to be used by lookup
             begin = 0
-            for name, nfrag in zip(self._names, f['full/geometries/nfrags'][:]):
+            for name, nfrag in zip(self._full_names, f['full/geometries/nfrags'][:]):
                 end = begin + nfrag
-                self.cases.append(Case(name, nfrag, begin, end))
+                self.full_cases.append(Case(name, nfrag, begin, end))
                 begin = end
-        print 'Number of cases', len(self.cases)
-        print 'Number of fragments', sum(case.nfrag for case in self.cases)
+            for name in self._frag_names:
+                self.frag_cases.append(Case(name, None, None, None))
+        print 'Number of cases', len(self.full_cases)
+        print 'Number of fragments', len(self.frag_cases)
 
     @classmethod
     def from_scratch(cls, fnh5, root, patterns, frag_path=None, report_missing=True):
@@ -166,39 +170,43 @@ class CalcDB(object):
                 _store_cases(f.create_group('frag'), frag_cases)
         return cls(fnh5, root, frag_path, report_missing)
 
-    def select(self, pattern):
-        """Find all the cases that match the given pattern
+    def select(self, pattern, do_frag=False):
+        """Find all the cases that match the given pattern.
 
         Parameters
         ----------
         pattern : str
                   See general pattern documentation above.
+        do_frag : bool
+                  When True, fragment names are selected.
         """
-        if isinstance(pattern, int) or isinstance(pattern, np.ndarray):
-            return pattern
-        else:
-            indexes = []
-            for i, case in enumerate(self.cases):
-                if fnmatch(case.name, pattern):
-                    indexes.append(i)
-            return np.array(indexes)
+        cases = self.frag_cases if do_frag else self.full_cases
+        indexes = []
+        for i, case in enumerate(cases):
+            if fnmatch(case.name, pattern):
+                indexes.append(i)
+        return np.array(indexes)
 
-    def lookup(self, name, ifrag):
+    def lookup(self, name, do_frag=False, get_frag=False):
         """Look up the index of a specific name.
 
         Parameters
         ----------
         name : str
-                   The complete name to be looked up
-        ifrag : int or None
-                When provided, the index of a fragment is returned
+               The complete name to be looked up
+        do_frag : bool
+                  When True, a fragment name is looked up.
+        get_frag : bool
+                   When True, fragment indexes are returned. Not compatible with do_frag.
         """
-        index = bisect_left(self._names, name)
-        if index != len(self._names) and self._names[index] == name:
-            if ifrag is None:
-                return index
+        names = self._frag_names if do_frag else self._full_names
+        index = bisect_left(names, name)
+        if index != len(names) and names[index] == name:
+            if get_frag:
+                assert not do_frag
+                return range(self.full_cases[index].begin, self.full_cases[index].end)
             else:
-                return self.cases[index].begin + ifrag
+                return index
         raise ValueError('Name not found: %s' % name)
 
     def load_data(self, source, indexes, do_frag=False):
@@ -244,13 +252,6 @@ class CalcDB(object):
             else:
                 raise TypeError('Uknown data kind: %s' % f[source].attrs['kind'])
 
-    def _get_file_path(self, name, ifrag, basename):
-        if ifrag is None:
-            result = os.path.join(self.root, name, basename)
-        else:
-            result = os.path.join(self.root, name, self.frag_path % ifrag, basename)
-        return os.path.normpath(result)
-
     def store_data(self, destination, data, shape, kind, dtype, do_frag):
         """Generic function to store data in the HDF5 file.
 
@@ -272,8 +273,14 @@ class CalcDB(object):
         do_frag : bool
                   When True, data for fragments must be stored
         """
-        # Prepare the array to be stored.
-        ranges = None
+        # Select the relevant cases
+        cases = self.frag_cases if do_frag else self.full_cases
+
+        # Prepare counters for missing pieces of information
+        nfound = 0
+        missing = set([case.name for case in cases])
+
+        # Prepare ranges and number of data points
         if kind == 'atom':
             with h5.File(self.fnh5, 'r') as f:
                 if do_frag:
@@ -281,44 +288,29 @@ class CalcDB(object):
                 else:
                     ranges = f['full/geometries/atom_ranges'][:]
             ntotal = ranges[-1,1]
-        elif kind == 'frag':
-            with h5.File(self.fnh5, 'r') as f:
-                if do_frag:
-                    ranges = f['frag/geometries/frag_ranges'][:]
-                else:
-                    ranges = f['full/geometries/frag_ranges'][:]
-            ntotal = ranges[-1,1]
         elif kind == 'mol':
-            if do_frag:
-                ntotal = sum(case.nfrag for case in self.cases)
-            else:
-                ntotal = len(self.cases)
+            ranges = None
+            ntotal = len(cases)
+        else:
+            raise ValueError('The argument kind should be atom or frag.')
+
+        # Prepare the array were all data will be collected.
         all_data_array = np.empty((ntotal,) + shape, dtype=dtype)
         if issubclass(dtype, float):
             all_data_array.fill(np.nan)
         else:
             all_data_array.fill(-1)
 
-        # Prepare data to count missing pieces of information
-        nfound = 0
-        missing = set([])
-        for case in self.cases:
-            if do_frag:
-                for ifrag in xrange(case.nfrag):
-                    missing.add((case.name, ifrag))
-            else:
-                missing.add((case.name, None))
-
         # Go through all the data and store it in the right place in the array.
-        for name, ifrag, data_array in data:
+        for name, data_array in data:
             if data_array is None:
                 continue
             assert np.isfinite(data_array).all()
-            ibig = self.lookup(name, ifrag)
+            ibig = self.lookup(name, do_frag)
             if kind == 'mol':
                 all_data_array[ibig] = data_array
                 nfound += 1
-            elif kind == 'atom' or kind == 'frag':
+            elif kind == 'atom':
                 if data_array.shape[1:] != shape:
                     raise TypeError('Shape mismatch for %s:%s. Got %s while expecting %s.' %
                                     (name, ifrag, data_array.shape[1:], shape))
@@ -329,8 +321,8 @@ class CalcDB(object):
                 all_data_array[begin:end] = data_array
                 nfound += end - begin
             else:
-                raise ValueError('Uknown kind: %s' % kind)
-            missing.discard((name, ifrag))
+                raise ValueError('Unknown kind: %s' % kind)
+            missing.discard(name)
 
         # Add prefix in case of fragment data
         if do_frag:
@@ -340,12 +332,11 @@ class CalcDB(object):
 
         # Check the completness of the data
         fraction = float(nfound)/ntotal
-        print '    Storing %.0f%% of %s (%i/%i): kind=%s, shape=%s, type=%s' % (
-            fraction*100, destination, nfound, ntotal, kind, shape, dtype.__name__)
+        print '    Storing %.0f%% of %s (%i/%i): kind=%s, shape=%s, type=%s, do_frag=%s' % (
+            fraction*100, destination, nfound, ntotal, kind, shape, dtype.__name__, do_frag)
         if self.report_missing and nfound > 0:
-            for name, ifrag in sorted(missing):
-                path = self._get_file_path(name, ifrag, '')
-                print '        Missing', path
+            for name in sorted(missing):
+                print '        Missing', os.path.join(self.root, name)
 
         # Store it in the HDF5 file, only if some data was read
         if nfound > 0:
@@ -366,34 +357,47 @@ class CalcDB(object):
         fields : Fields
                  An object that can read specific fields from a data file.
         do_frag : bool
-                  If True, fragment data will be loaded instead of the x-mer data.
+                  If True, fragment data will be loaded instead of the full system data.
         """
         print 'Loading from %s with %s (do_frag=%s)' % (basename, fields.__class__.__name__, do_frag)
         # All data will be collected here
         data = dict((info.destination, []) for info in fields.infos)
 
-        def parse_frag(case, ifrag):
-            """Sub-driver for given case and fragment."""
-            path = self._get_file_path(case.name, ifrag, basename)
+        # Loop over all cases (and fragments)
+        cases = self.frag_cases if do_frag else self.full_cases
+        for case in cases:
+            path = os.path.join(self.root, case.name, basename)
             if os.path.isfile(path):
                 values = fields.read(path)
             else:
                 values = [None]*len(fields.infos)
             for info, value in zip(fields.infos, values):
-                data[info.destination].append((case.name, ifrag, value))
-
-        # Loop over all cases (and fragments)
-        for case in self.cases:
-            if do_frag:
-                for ifrag in xrange(case.nfrag):
-                    parse_frag(case, ifrag)
-            else:
-                parse_frag(case, None)
+                data[info.destination].append((case.name, value))
 
         # Call lower-level store_data
         for info in fields.infos:
-            self.store_data(info.destination, data[info.destination], info.shape,
-                            info.kind, info.dtype, do_frag)
+            # In case of the frag kind, we have to transform it into mol kind for fragment
+            # data.
+            if info.kind == 'frag':
+                assert not do_frag
+                kind = 'mol'
+                my_do_frag = True
+                data_list = []
+                for full_name, frag_values in data[info.destination]:
+                    frag_indexes = self.lookup(full_name, get_frag=True)
+                    if frag_values is None:
+                        for frag_index in frag_indexes:
+                            data_list.append((self.frag_cases[frag_index].name, None))
+                    else:
+                        for frag_index, frag_value in zip(frag_indexes, frag_values):
+                            data_list.append((self.frag_cases[frag_index].name, frag_value))
+            else:
+                kind = info.kind
+                my_do_frag = do_frag
+                data_list = data[info.destination]
+
+            # Finally store it
+            self.store_data(info.destination, data_list, info.shape, kind, info.dtype, my_do_frag)
         print
 
     def store_geometries(self, basename, do_frag=False):
@@ -435,10 +439,10 @@ GaussianFCHKFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype fc
 class GaussianFCHKFields(Fields):
     def __init__(self, prefix='gaussian'):
         Fields.__init__(self, [
-            GaussianFCHKFieldInfo('estruct/%s_mol_charges' % prefix, (), 'mol', int, 'Charge'),
-            GaussianFCHKFieldInfo('estruct/%s_mol_dipoles' % prefix, (3,), 'mol', float, 'Dipole Moment'),
-            GaussianFCHKFieldInfo('estruct/net_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
-            GaussianFCHKFieldInfo('estruct/%s_eff_core_charges' % prefix, (), 'atom', float, 'Nuclear charges'),
+            GaussianFCHKFieldInfo('estruct/mol_charges/%s' % prefix, (), 'mol', int, 'Charge'),
+            GaussianFCHKFieldInfo('estruct/mol_dipoles/%s' % prefix, (3,), 'mol', float, 'Dipole Moment'),
+            GaussianFCHKFieldInfo('estruct/atom_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
+            GaussianFCHKFieldInfo('estruct/eff_core_charges/%s' % prefix, (), 'atom', float, 'Nuclear charges'),
         ])
 
     def read(self, path):
@@ -472,29 +476,29 @@ class HDF5Fields(Fields):
         return result
 
 
-class HDF5ChargeFields(HDF5Fields):
-    def __init__(self, scheme, kind='atom'):
+class HDF5AtomChargeFields(HDF5Fields):
+    def __init__(self, scheme):
         Fields.__init__(self, [
-            HDF5FieldInfo('estruct/net_charges/%s' % scheme, (), kind, float, 'charges'),
-            HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), kind, float, 'valence_charges'),
-            HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), kind, float, 'valence_widths'),
-            HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), kind, float, 'core_charges'),
-            HDF5FieldInfo('estruct/populations/%s' % scheme, (), kind, float, 'populations'),
-            HDF5FieldInfo('estruct/self_populations/%s' % scheme, (), kind, float, 'self_populations'),
+            HDF5FieldInfo('estruct/atom_charges/%s' % scheme, (), 'atom', float, 'charges'),
+            HDF5FieldInfo('estruct/valence_charges/%s' % scheme, (), 'atom', float, 'valence_charges'),
+            HDF5FieldInfo('estruct/valence_widths/%s' % scheme, (), 'atom', float, 'valence_widths'),
+            HDF5FieldInfo('estruct/core_charges/%s' % scheme, (), 'atom', float, 'core_charges'),
+            HDF5FieldInfo('estruct/atom_populations/%s' % scheme, (), 'atom', float, 'populations'),
+            HDF5FieldInfo('estruct/atom_self_populations/%s' % scheme, (), 'atom', float, 'self_populations'),
         ])
 
 
 TXTFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype line re')
 
 
-cp2k_ddap_charges = TXTFieldInfo('estruct/net_charges/cp2k_ddap', (), 'atom', float,
+cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float,
                                  None, re.compile('^ ....\d  ..   (.*)$'))
 restr_lowmul = '^ .{6}\d .{6} .{6}\d .{9}\d\.\d{6} *([-+0-9].*)$'
-cp2k_lowdin_charges = TXTFieldInfo('estruct/net_charges/cp2k_lowdin', (), 'atom', float,
+cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float,
                                    None, re.compile(restr_lowmul))
-cp2k_mulliken_charges = TXTFieldInfo('estruct/net_charges/cp2k_mulliken', (), 'atom', float,
+cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float,
                                      None, re.compile(restr_lowmul))
-cp2k_resp_charges = TXTFieldInfo('estruct/net_charges/cp2k_resp', (), 'atom', float,
+cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float,
                                  None, re.compile('^  RESP .{6}\d  ..   (.*)$'))
 
 

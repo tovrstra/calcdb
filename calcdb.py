@@ -448,10 +448,12 @@ class GaussianFCHKFields(Fields):
             GaussianFCHKFieldInfo('estruct/mol_dipoles/%s' % prefix, (3,), 'mol', float, 'Dipole Moment'),
             GaussianFCHKFieldInfo('estruct/atom_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
             GaussianFCHKFieldInfo('estruct/eff_core_charges/%s' % prefix, (), 'atom', float, 'Nuclear charges'),
+            GaussianFCHKFieldInfo('estruct/mol_populations/%s' % prefix, (), 'mol', int, None),
+            GaussianFCHKFieldInfo('estruct/atom_populations/%s_mulliken' % prefix, (), 'atom', float, None),
         ])
 
     def read(self, path):
-        fchk_names = [info.fchk_name for info in self.infos]
+        fchk_names = [info.fchk_name for info in self.infos if info.fchk_name is not None]
         fchk = FCHKFile(path, fchk_names)
         result = []
         for fchk_name in fchk_names:
@@ -460,6 +462,8 @@ class GaussianFCHKFields(Fields):
         mask = result[-1] > 0
         result[2] = result[2][mask]
         result[3] = result[3][mask]
+        result.append(result[3].sum() - result[0])
+        result.append(result[3] - result[2])
         return result
 
 

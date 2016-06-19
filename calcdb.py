@@ -46,7 +46,7 @@ __all__ = [
 Case = namedtuple('Case', 'name nfrag begin end')
 
 
-def _lookup_cases(root, patterns, frag_path=None):
+def _lookup_cases(root, patterns, convert_to_frag=None):
     """Find all systems and their fragments by scanning directories
 
     Parameters
@@ -55,8 +55,8 @@ def _lookup_cases(root, patterns, frag_path=None):
            The root directory where the calculations and the database are stored.
     patterns : list of str
                List of fnmatch strings with directories containint calculations
-    frag_path : str
-               Relative path to the fragment calculations (contains on time '%i').
+    convert_to_frag : function
+                      Converts a full path to a fragment path.
     """
     print 'Looking up all directories (slow)'
     full_cases = []
@@ -64,12 +64,12 @@ def _lookup_cases(root, patterns, frag_path=None):
     for pattern in patterns:
         full_names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
         for full_name in full_names:
-            if frag_path is None:
+            if convert_to_frag is None:
                 nfrag = 0
             else:
                 nfrag = 0
                 while True:
-                    frag_name = os.path.normpath(os.path.join(full_name, frag_path % nfrag))
+                    frag_name = convert_to_frag(full_name, nfrag)
                     frag_dirname = os.path.join(root, frag_name)
                     if not os.path.isdir(frag_dirname):
                         break
@@ -109,7 +109,7 @@ def _store_cases(g, cases):
 
 
 class CalcDB(object):
-    def __init__(self, fnh5, root=None, frag_path=None, report_missing=True):
+    def __init__(self, fnh5, root=None, report_missing=True):
         """Initialize a calculation database
 
         Only the first argument is needed to use the database. The rest is also needed
@@ -122,14 +122,11 @@ class CalcDB(object):
                The name of the HDF5 file.
         root : str
                The root directory where the calculations and the database are stored.
-        frag_path : str
-                   Relative path to the fragment calculations (contains on time '%i').
         report_missing : boolean
                          When True, every name is printed for which no data is provided.
         """
         self.fnh5 = fnh5
         self.root = root
-        self.frag_path = frag_path
         self.report_missing = report_missing
 
         with h5.File(self.fnh5, 'r') as f:
@@ -148,7 +145,7 @@ class CalcDB(object):
         print 'Number of fragments', len(self.frag_cases)
 
     @classmethod
-    def from_scratch(cls, fnh5, root, patterns, frag_path=None, report_missing=True):
+    def from_scratch(cls, fnh5, root, patterns, convert_to_frag=None, report_missing=True):
         """Initialize a calculation database from scratch
 
         Parameters
@@ -159,17 +156,17 @@ class CalcDB(object):
                The root directory where the calculations and the database are stored.
         patterns : list of str
                    List of fnmatch strings with directories containint calculations
-        frag_path : str
-                   Relative path to the fragment calculations (contains on time '%i').
+        convert_to_frag : function
+                          Converts a full path to a fragment path.
         report_missing : boolean
                          When True, every name is printed for which no data is provided.
         """
         if not os.path.isfile(fnh5):
-            full_cases, frag_cases = _lookup_cases(root, patterns, frag_path)
+            full_cases, frag_cases = _lookup_cases(root, patterns, convert_to_frag)
             with h5.File(fnh5) as f:
                 _store_cases(f.create_group('full'), full_cases)
                 _store_cases(f.create_group('frag'), frag_cases)
-        return cls(fnh5, root, frag_path, report_missing)
+        return cls(fnh5, root, report_missing)
 
     def __contains__(self, h5_path):
         """Test if a path is present in the HDF5 file"""

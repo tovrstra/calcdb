@@ -441,11 +441,13 @@ GaussianFCHKFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype fc
 
 class GaussianFCHKFields(Fields):
     def __init__(self, prefix='gaussian'):
+        self.prefix = prefix
         Fields.__init__(self, [
-            GaussianFCHKFieldInfo('estruct/mol_charges/%s' % prefix, (), 'mol', int, 'Charge'),
-            GaussianFCHKFieldInfo('estruct/mol_dipoles/%s' % prefix, (3,), 'mol', float, 'Dipole Moment'),
             GaussianFCHKFieldInfo('estruct/atom_charges/%s_mulliken' % prefix, (), 'atom', float, 'Mulliken Charges'),
             GaussianFCHKFieldInfo('estruct/eff_core_charges/%s' % prefix, (), 'atom', float, 'Nuclear charges'),
+            GaussianFCHKFieldInfo('estruct/mol_charges/%s' % prefix, (), 'mol', int, 'Charge'),
+            GaussianFCHKFieldInfo('estruct/mol_dipoles/%s' % prefix, (3,), 'mol', float, 'Dipole Moment'),
+            GaussianFCHKFieldInfo('estruct/mol_polars/%s' % prefix, (3, 3), 'mol', float, 'Polarizability'),
             GaussianFCHKFieldInfo('estruct/mol_populations/%s' % prefix, (), 'mol', int, None),
             GaussianFCHKFieldInfo('estruct/atom_populations/%s_mulliken' % prefix, (), 'atom', float, None),
         ])
@@ -457,16 +459,36 @@ class GaussianFCHKFields(Fields):
         except IOError:
             print 'Borked', path
             return [None]*len(self.infos)
-        result = []
-        for fchk_name in fchk_names:
-            result.append(fchk[fchk_name])
+        fields = {}
+        for info in self.infos:
+            if info.fchk_name is not None:
+                fields[info.destination] = fchk.get(info.fchk_name)
+
+        prefix = self.prefix
+
+        # Compute Mulliken and molecular populstion(s).
+        eff_charges = fields['estruct/eff_core_charges/%s' % prefix]
+        fields['estruct/mol_populations/%s' % prefix] = eff_charges.sum() \
+            - fields['estruct/mol_charges/%s' % prefix]
+        fields['estruct/atom_populations/%s_mulliken' % prefix] = eff_charges \
+            - fields['estruct/atom_charges/%s_mulliken' % prefix]
+
         # Filter out ghost atoms
-        mask = result[-1] > 0
-        result[2] = result[2][mask]
-        result[3] = result[3][mask]
-        result.append(result[3].sum() - result[0])
-        result.append(result[3] - result[2])
-        return result
+        mask = eff_charges > 0
+        for info in self.infos:
+            if info.kind == 'atom':
+                fields[info.destination] = fields[info.destination][mask]
+
+        # Fix the polarizability -> 3x3 matrix
+        p = fields['estruct/mol_polars/%s' % prefix]
+        if p is not None:
+            fields['estruct/mol_polars/%s' % prefix] = np.array([
+                [p[0], p[1], p[3]],
+                [p[1], p[2], p[4]],
+                [p[3], p[4], p[5]],
+            ])
+
+        return [fields[info.destination] for info in self.infos]
 
 
 HDF5FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype hdf5_path')

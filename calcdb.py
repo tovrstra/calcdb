@@ -452,7 +452,11 @@ class GaussianFCHKFields(Fields):
 
     def read(self, path):
         fchk_names = [info.fchk_name for info in self.infos if info.fchk_name is not None]
-        fchk = FCHKFile(path, fchk_names)
+        try:
+            fchk = FCHKFile(path, fchk_names)
+        except IOError:
+            print 'Borked', path
+            return [None]*len(self.infos)
         result = []
         for fchk_name in fchk_names:
             result.append(fchk[fchk_name])

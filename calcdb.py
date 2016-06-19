@@ -34,7 +34,8 @@ log.set_level(log.silent)
 
 __all__ = [
     'CalcDB',
-    'FieldInfo', 'Fields', 'GaussianFCHKFields',
+    'FieldInfo', 'Fields',
+    'XYZFields', 'GaussianFCHKFields',
     'HDF5FieldInfo', 'HDF5Fields', 'HDF5AtomChargeFields',
     'TXTFieldInfo', 'TXTFields',
     'cp2k_ddap_charges', 'cp2k_lowdin_charges', 'cp2k_mulliken_charges',
@@ -43,10 +44,10 @@ __all__ = [
 ]
 
 
-Case = namedtuple('Case', 'name nfrag begin end')
+Case = namedtuple('Case', 'name nfrag')
 
 
-def _lookup_cases(root, patterns, convert_to_frag=None):
+def _glob_cases(root, patterns, convert_to_frag=None):
     """Find all systems and their fragments by scanning directories
 
     Parameters
@@ -63,6 +64,7 @@ def _lookup_cases(root, patterns, convert_to_frag=None):
     frag_cases = []
     for pattern in patterns:
         full_names = [match[len(root)+1:] for match in glob(os.path.join(root, pattern))]
+        full_names.sort()
         for full_name in full_names:
             if convert_to_frag is None:
                 nfrag = 0
@@ -73,11 +75,9 @@ def _lookup_cases(root, patterns, convert_to_frag=None):
                     frag_dirname = os.path.join(root, frag_name)
                     if not os.path.isdir(frag_dirname):
                         break
-                    frag_cases.append(Case(frag_name, None, None, None))
+                    frag_cases.append(Case(frag_name, None))
                     nfrag += 1
-            full_cases.append(Case(full_name, nfrag, None, None))
-    full_cases.sort()
-    frag_cases.sort()
+            full_cases.append(Case(full_name, nfrag))
     return full_cases, frag_cases
 
 
@@ -107,7 +107,6 @@ def _store_cases(g, cases):
     g['geometries/frag_ranges'].attrs['kind'] = 'mol'
 
 
-
 class CalcDB(object):
     def __init__(self, fnh5, root=None, report_missing=True):
         """Initialize a calculation database
@@ -132,15 +131,13 @@ class CalcDB(object):
         with h5.File(self.fnh5, 'r') as f:
             self.full_cases = []
             self.frag_cases = []
-            self._full_names = f['full/geometries/names'][:]  # only to be used by lookup
-            self._frag_names = f['frag/geometries/names'][:]  # only to be used by lookup
-            begin = 0
-            for name, nfrag in zip(self._full_names, f['full/geometries/nfrags'][:]):
-                end = begin + nfrag
-                self.full_cases.append(Case(name, nfrag, begin, end))
-                begin = end
-            for name in self._frag_names:
-                self.frag_cases.append(Case(name, None, None, None))
+            # The following two are only used by lookup:
+            self._full_names_map = dict((name, index) for index, name in enumerate(f['full/geometries/names'][:]))
+            self._frag_names_map = dict((name, index) for index, name in enumerate(f['frag/geometries/names'][:]))
+            for name, nfrag in zip(f['full/geometries/names'][:], f['full/geometries/nfrags'][:]):
+                self.full_cases.append(Case(name, nfrag))
+            for name in f['frag/geometries/names'][:]:
+                self.frag_cases.append(Case(name, None))
         print 'Number of cases', len(self.full_cases)
         print 'Number of fragments', len(self.frag_cases)
 
@@ -162,7 +159,7 @@ class CalcDB(object):
                          When True, every name is printed for which no data is provided.
         """
         if not os.path.isfile(fnh5):
-            full_cases, frag_cases = _lookup_cases(root, patterns, convert_to_frag)
+            full_cases, frag_cases = _glob_cases(root, patterns, convert_to_frag)
             with h5.File(fnh5) as f:
                 _store_cases(f.create_group('full'), full_cases)
                 _store_cases(f.create_group('frag'), frag_cases)
@@ -202,15 +199,14 @@ class CalcDB(object):
         get_frag : bool
                    When True, fragment indexes are returned. Not compatible with do_frag.
         """
-        names = self._frag_names if do_frag else self._full_names
-        index = bisect_left(names, name)
-        if index != len(names) and names[index] == name:
-            if get_frag:
-                assert not do_frag
-                return range(self.full_cases[index].begin, self.full_cases[index].end)
-            else:
-                return index
-        raise ValueError('Name not found: %s' % name)
+        names_map = self._frag_names_map if do_frag else self._full_names_map
+        index = names_map[name]
+        if get_frag:
+            assert not do_frag
+            begin, end = self.load_data('full/geometries/frag_ranges', index)
+            return range(begin, end)
+        else:
+            return index
 
     def load_data(self, source, indexes, do_frag=False):
         """Load data for all cases listed in in indexes
@@ -403,10 +399,6 @@ class CalcDB(object):
             self.store_data(info.destination, data_list, info.shape, kind, info.dtype, my_do_frag)
         print
 
-    def store_geometries(self, basename, do_frag=False):
-        """Store the geometries in the database."""
-        self.store_fields(basename, XYZFields(do_frag), do_frag)
-
 
 FieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype')
 
@@ -420,7 +412,7 @@ class Fields(object):
 
 
 class XYZFields(Fields):
-    def __init__(self, do_frag=False):
+    def __init__(self):
         Fields.__init__(self, [
             FieldInfo('geometries/atom_ranges', (2,), 'mol', int),
             FieldInfo('geometries/numbers', (), 'atom', int),

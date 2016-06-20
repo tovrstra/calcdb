@@ -531,7 +531,7 @@ cp2k_mol_population = TXTFieldInfo('estruct/mol_populations/cp2k', (), 'mol', fl
 class TXTFields(Fields):
     def read(self, path):
         with open(path) as f:
-            values = [[]]*len(self.infos)
+            values = [[] for info in self.infos]
             for iline, line in enumerate(f):
                 for iinfo, info in enumerate(self.infos):
                     if info.line is None or info.line == iline:

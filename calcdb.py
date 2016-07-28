@@ -439,6 +439,7 @@ class GaussianFCHKFields(Fields):
             GaussianFCHKFieldInfo('estruct/eff_core_charges/%s' % prefix, (), 'atom', float, 'Nuclear charges'),
             GaussianFCHKFieldInfo('estruct/mol_charges/%s' % prefix, (), 'mol', int, 'Charge'),
             GaussianFCHKFieldInfo('estruct/mol_dipoles/%s' % prefix, (3,), 'mol', float, 'Dipole Moment'),
+            GaussianFCHKFieldInfo('estruct/mol_fields/%s' % prefix, (35,), 'mol', int, 'External E-field'),
             GaussianFCHKFieldInfo('estruct/mol_polars/%s' % prefix, (3, 3), 'mol', float, 'Polarizability'),
             GaussianFCHKFieldInfo('estruct/mol_populations/%s' % prefix, (), 'mol', int, None),
             GaussianFCHKFieldInfo('estruct/atom_populations/%s_mulliken' % prefix, (), 'atom', float, None),

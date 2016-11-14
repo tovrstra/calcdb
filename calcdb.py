@@ -514,20 +514,20 @@ class HDF5AtomChargeFields(HDF5Fields):
         ])
 
 
-TXTFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype line re')
+TXTFieldInfo = namedtuple('FieldInfo', 'destination shape kind dtype line re unit')
 
 
 cp2k_ddap_charges = TXTFieldInfo('estruct/atom_charges/cp2k_ddap', (), 'atom', float,
-                                 None, re.compile('^ ....\d  ..   (.*)$'))
+                                 None, re.compile('^ ....\d  ..   (.*)$'), None)
 restr_lowmul = '^ .{6}\d .{6} .{6}\d .{9}\d\.\d{6} *([-+0-9].*)$'
 cp2k_lowdin_charges = TXTFieldInfo('estruct/atom_charges/cp2k_lowdin', (), 'atom', float,
-                                   None, re.compile(restr_lowmul))
+                                   None, re.compile(restr_lowmul), None)
 cp2k_mulliken_charges = TXTFieldInfo('estruct/atom_charges/cp2k_mulliken', (), 'atom', float,
-                                     None, re.compile(restr_lowmul))
+                                     None, re.compile(restr_lowmul), None)
 cp2k_resp_charges = TXTFieldInfo('estruct/atom_charges/cp2k_resp', (), 'atom', float,
-                                 None, re.compile('^  RESP .{6}\d  ..   (.*)$'))
+                                 None, re.compile('^  RESP .{6}\d  ..   (.*)$'), None)
 cp2k_mol_population = TXTFieldInfo('estruct/mol_populations/cp2k', (), 'mol', float,
-                                   None, re.compile('^ Number of electrons:   (.*\d*)$'))
+                                   None, re.compile('^ Number of electrons:   (.*\d*)$'), None)
 
 class TXTFields(Fields):
     def read(self, path):
@@ -548,6 +548,8 @@ class TXTFields(Fields):
                         values[iinfo] = np.array(values[iinfo]).reshape(info.shape)
                 else:
                     values[iinfo] = np.array(values[iinfo]).reshape((-1,) + info.shape)
+                if info.unit is not None:
+                    values[iinfo] *= info.unit
             return values
 
 
